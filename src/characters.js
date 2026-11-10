@@ -201,6 +201,38 @@ export const LOBBY_SCENES = [
 export function getChar(id){ return CHARACTERS.find(c=>c.id===id) || CHARACTERS[0]; }
 export function rarityRank(r){ return {R:0,SR:1,SSR:2,UR:3}[r] ?? 0; }
 
+// Falas de super em japonês (versões curtas estilo anime).
+export const SUPER_JP = {
+  "special-week": "虹の先へ！全力で行くよ！",
+  "silence-suzuka": "誰にも追いつかせない…行くよ！",
+  "tokai-teio": "輝こう！虹の向こうへ！",
+  "gold-ship": "ハハハ！海が割れたぜ！",
+  "oguri-cap": "田舎の奇跡を見せるよ！",
+  "vodka": "なめるなよ！見せてやる！",
+  "daiwa-scarlet": "勝利はあたしのものよ！",
+  "grass-wonder": "咲くよ…今！",
+  "el-condor-pasa": "太陽の翼で行くよ！",
+  "maruzensky": "つかまって！加速するよ！",
+  "mejiro-mcqueen": "優雅に、最後まで。",
+  "rice-shower": "あたしも…勝てる…！",
+  "symboli-rudolf": "ひざまずきなさい。",
+  "narita-brian": "どきなさい。",
+  "mihono-bourbon": "最大出力、開始。",
+  "kitasan-black": "努力は咲く！行くよ！",
+  "satono-diamond": "まぶしさで倒すよ！",
+  "sakura-bakushin": "バクシン！みんなで行くよ！",
+  "haru-urara": "いつか勝つ！今日だよ！",
+  "agnes-tachyon": "科学は…速度よ！",
+  "mayano-top-gun": "ロックオン！発進！",
+  "seiun-sky": "逃げるよ…もう戻らない！",
+  "seium-sky": "逃げるよ…もう戻らない！",
+  "twin-turbo": "ターボ！ターボ！ターボ！",
+  "jungle-pocket": "ジャングルが呼んでる！",
+  "duramente": "真の王を見なさい。",
+  "orfevre": "震えなさい！金色よ！",
+  "gentildonna": "優雅に…砕く！",
+  "almond-eye": "敗北は見切ったわ。",
+};
 // Personalidade de cada corredora: define expressão, trejeitos e voz.
 // cute = fofa · wild = selvagem/caótica · cool = fria · noble = elegante
 export const PERSONA = {
