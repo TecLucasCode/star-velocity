@@ -1,0 +1,17 @@
+$meta
+  title = Uma Musume: Star Velocity — corrida multiplayer pixel art
+  shortTitle = Star Velocity
+  description = Jogo de corrida multiplayer estilo Uma Musume com pixel art HD: lobby social, 28 corredoras, dash, super cinematográfico, 7 pistas e partidas até 8 jogadoras. Horizontal 16:9.
+  tags = uma musume, corrida, multiplayer, pixel art, jogo, mobile, horse girl
+  header
+    mode = minimal
+
+createServerSocket = {import:server-plugin}
+kv = {import:kv-plugin}
+
+// Config global acessível via root.config
+config
+  trackLaps = 2
+  maxRacers = 8
+  maxParty = 4
+  tickHz = 10
