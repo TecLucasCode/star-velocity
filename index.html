@@ -354,8 +354,8 @@ self.rpc = {
         <div class="sceneRow" id="sceneRow"></div>
         <h4>😄 Emotes</h4>
         <div class="emoteRow">
-          <button data-emote="win">🙌</button><button data-emote="present">✨</button>
-          <button data-emote="super">🌟</button><button data-emote="sad">😢</button>
+          <button data-emote="win" title="Comemorar">🙌</button><button data-emote="flex" title="Garra">💪</button><button data-emote="present" title="Pose">✨</button>
+          <button data-emote="super" title="Super">🌟</button><button data-emote="sad" title="Triste">😢</button><button data-emote="sleep" title="Soneca">💤</button>
         </div>
         <h4>👥 Grupo <small id="partyCount"></small></h4>
         <div id="roomBox">Sala: <code id="roomCode">—</code>
@@ -432,8 +432,6 @@ self.rpc = {
       <p>✨ Qualidade: <select id="setQuality"><option>Alto</option><option>Médio</option><option>Baixo</option></select></p>
       <p>🎥 Câmera: <select id="setCam"><option>Suave</option><option>Reduzida</option></select>
          ✨ Efeitos: <select id="setFx"><option>Alto</option><option>Baixo</option></select></p>
-      <p>🎙 Vozes das corredoras: <select id="setVoice"><option>Ligada</option><option>Desligada</option></select>
-        <span style="font-size:12px">(falam o super, a vitória e dão oi — usa a voz do aparelho)</span></p>
       <p style="font-size:12px">Câmera Reduzida desliga zoom/shake (menos enjoo). Efeitos Baixo reduz partículas.</p>
       <p>🕹 Tamanho controles: <input type="range" id="setCtrl" min="0.8" max="1.5" step="0.1"></p>
       <div class="rowBtns" style="max-width:420px">
@@ -480,6 +478,10 @@ self.rpc = {
     <div id="resLines"></div>
     <p id="resRewards"></p>
     <div class="rowBtns">
+      <button class="smBtn" id="btnCelebrate">🎉 Comemorar</button>
+      <button class="smBtn" id="btnPout">😭 Poxa</button>
+    </div>
+    <div class="rowBtns">
       <button class="smBtn" id="btnAgain">🔁 De novo</button>
       <button class="smBtn" id="btnToLobby">🏠 Lobby</button>
     </div>
@@ -490,7 +492,7 @@ self.rpc = {
 
 <script type="module">
 import { S, loadSave, save, toast, updateTopbar, showScreen, showModal, hideModal,
-  initLobby, initRace, startRace, doEmote, refreshChars } from "./src/game.js";
+  initLobby, initRace, startRace, doEmote, refreshChars, celebrate, stopPodium } from "./src/game.js";
 import { LOBBY_SCENES, MAPS, getChar, unlockedMaps } from "./src/characters.js";
 import { net, connectNet, createRoom, joinRoom, leaveRoom, announceHello, sendGameEvent } from "./src/net.js";
 import { sfx, playMusic, initAudio, resumeAudio } from "./src/audio.js";
@@ -641,7 +643,6 @@ document.getElementById("btnSaveSet").onclick=()=>{
   S.settings.quality=document.getElementById("setQuality").value;
   S.settings.camera=document.getElementById("setCam").value||"Suave";
   S.settings.fx=document.getElementById("setFx").value||"Alto";
-  S.settings.voice=document.getElementById("setVoice").value||"Ligada";
   S.ctrlLayout.scale=+document.getElementById("setCtrl").value||1;
   const { setVolumes }=window.__audioSet||{};
   save(); updateTopbar(); toast("Salvo!"); sfx.click();
@@ -657,8 +658,10 @@ document.getElementById("setMusic")?.addEventListener("input",e=>import("./src/a
 document.getElementById("btnFs").onclick=()=>{ try{ document.documentElement.requestFullscreen(); }catch(e){} if(screen.orientation?.lock) screen.orientation.lock("landscape").catch(()=>{}); };
 
 // resultados
-document.getElementById("btnToLobby").onclick=()=>{ hideModal("resultsModal"); showScreen("lobby"); playMusic("lobby"); };
-document.getElementById("btnAgain").onclick=()=>{ hideModal("resultsModal"); startRace({ laps:2 }); };
+document.getElementById("btnToLobby").onclick=()=>{ stopPodium(); hideModal("resultsModal"); showScreen("lobby"); playMusic("lobby"); };
+document.getElementById("btnAgain").onclick=()=>{ stopPodium(); hideModal("resultsModal"); startRace({ laps:2 }); };
+document.getElementById("btnCelebrate").onclick=()=>{ sfx.click(); celebrate("win"); };
+document.getElementById("btnPout").onclick=()=>{ sfx.click(); celebrate("lose"); };
 document.getElementById("btnQuitRace").onclick=()=>{ showScreen("lobby"); playMusic("lobby"); };
 setInterval(()=>{ if(S.mode==="race") import("./src/game.js").then(()=>{}); },5000);
 </script>
