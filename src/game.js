@@ -3,7 +3,6 @@
 import { CHARACTERS, MAPS, LOBBY_SCENES, getChar, unlockedMaps } from "./characters.js";
 import { drawUma, setupPixelCtx, drawCrowd, drawCloudPuff, drawPennant, drawTuft } from "./pixel.js";
 import { RARITY_INFO, PERSONA, SUPER_FX } from "./characters.js";
-import { speakSuper, speakResult, speakHello, isVoiceReady } from "./voice.js";
 import { sfx, playMusic, setVolumes, initAudio, resumeAudio } from "./audio.js";
 import { net, connectNet, createRoom, joinRoom, leaveRoom, sendRace, sendGameEvent, announceHello } from "./net.js";
 
@@ -15,7 +14,7 @@ export const S = window.__SV_STATE__ = {
   skin: {}, outfit: "default",
   lobbyScene: "academia", frame: "default", trail: "default", superFx: "default",
   missions: {}, wins: 0, races: 0, overtakes: 0,
-  settings: { music: 0.7, sfx: 0.8, quality: "Alto", scene: "academia", camera: "Suave", fx: "Alto", voice: "Ligada" },
+  settings: { music: 0.7, sfx: 0.8, quality: "Alto", scene: "academia", camera: "Suave", fx: "Alto" },
   ctrlLayout: { scale: 1 },
   ready: false,
   party: [], // {id,name,charId,ready,you}
@@ -181,7 +180,6 @@ export function selectLobbyChar(id){
   S.lobbyBlend = 0;
   S.lobbyAngleV += (S.lobbyAngleV >= 0 ? 1 : -1) * 2.2; // girinho de transição
   spawnLobbySpark(0.5, 0.42, 26);
-  speakHello(c, S.settings.voice!=="Desligada");
   save(); updateLobbyCharUI(); buildLobbyGallery(); updateTopbar();
   try{ sfx.click(); }catch(e){}
   toast("★ " + c.name + " selecionada!");
@@ -404,6 +402,7 @@ export function drawLobby(t, dt){
     const pose = emotePose(p, t);
     ctx.save(); ctx.globalAlpha=0.92;
     drawUma(ctx, def, slotX, platY-4, hh, 0.4+Math.sin(t+i)*0.1, pose, t+i, 0, S.lobbyAngleV*0.3);
+    drawEmoteBubble(ctx, p, slotX, platY-hh*0.90, h*0.045);
     ctx.restore();
     ctx.font = Math.round(h*0.034)+"px monospace"; ctx.textAlign="center";
     const label=(p.you?"★ ":"")+p.name+(p.ready?" ✓":"");
@@ -437,6 +436,11 @@ export function drawLobby(t, dt){
   ctx.restore();
   const pose = emotePose(party[meIdx]||{emote:S.emote,emoteT:S.emoteT}, t);
   drawUma(ctx, cur, inX, platY, inH, S.lobbyAngle, pose, t, 0, spin);
+  // reflexo suave no chão (cor do super da personagem)
+  ctx.save(); ctx.globalAlpha=(prev&&b<1? ease:1)*0.18; ctx.fillStyle=cur.super.color;
+  ctx.beginPath(); ctx.ellipse(inX, platY+inH*0.022, inH*0.24, inH*0.032, 0, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+  drawEmoteBubble(ctx, party[meIdx]||{emote:S.emote,emoteT:S.emoteT}, inX, platY-inH*0.90, h*0.055);
   ctx.restore();
   // nome do grupo sobre a principal (só se houver grupo)
   if(party.length>1){
@@ -541,12 +545,31 @@ function partyList(){
 function emotePose(p,t){
   const age = (Date.now()-(p.emoteT||0))/1000;
   if(p.emote && age<3){
-    if(p.emote==="win"||p.emote==="cheer") return "win";
+    if(p.emote==="win"||p.emote==="cheer"||p.emote==="flex") return "win";
     if(p.emote==="sad") return "lose";
-    if(p.emote==="present") return "present";
+    if(p.emote==="present"||p.emote==="love") return "present";
     if(p.emote==="super") return "super";
   }
   return "idle";
+}
+const EMOTE_EMOJI = { win:"🙌", flex:"💪", present:"✨", super:"🌟", sad:"😢", sleep:"💤", love:"😍", cheer:"📣" };
+// balão de emoji sobre a cabeça (aparece ao usar emote, some em 3s)
+function drawEmoteBubble(ctx, p, x, y, s){
+  if(!p || !p.emote) return;
+  const age = (Date.now()-(p.emoteT||0))/1000;
+  if(age>=3) return;
+  const bob = Math.sin(Date.now()/160)*2;
+  const w2 = s*1.25, h2 = s*1.2, by = y - s - h2 + bob;
+  ctx.save();
+  ctx.fillStyle = "rgba(255,255,255,0.94)";
+  ctx.beginPath();
+  if(ctx.roundRect) ctx.roundRect(x-w2/2, by, w2, h2, Math.max(2,s*0.25)); else ctx.rect(x-w2/2, by, w2, h2);
+  ctx.fill();
+  ctx.fillRect(x-3, by+h2-2, 6, 5); // rabinho
+  ctx.font = `${Math.round(s)}px sans-serif`; ctx.textAlign="center"; ctx.textBaseline="alphabetic";
+  ctx.fillStyle = "#0a0e1a";
+  ctx.fillText(EMOTE_EMOJI[p.emote]||"💬", x, by+h2-Math.max(2,s*0.18));
+  ctx.restore();
 }
 export function doEmote(kind){
   S.emote=kind; S.emoteT=Date.now(); sfx.emote();
@@ -915,9 +938,6 @@ function fireSuper(r, remote){
   // cinemática GLOBAL sincronizada
   S.race.cine={ def:r.def, name:r.name, quote:r.def.super.quote, super:r.def.super.name, color:r.def.super.color, t:0, byMe:!!r.you };
   if(r.you){ r._netSuper=true; sendGameEvent("super",{ id:r.id, name:r.name, charId:r.charId }); }
-  if(r.you){
-    speakSuper(r.def, S.settings.voice!=="Desligada");
-  }
   if(!remote) toast(`${r.def.super.name}!`);
 }
 function onFinish(me){
@@ -932,7 +952,6 @@ function onFinish(me){
   checkMissions(me.charId, won);
   save();
   if(won) sfx.win(); else sfx.lose();
-  speakResult(me.def, won, S.settings.voice!=="Desligada");
   updateTopbar();
 }
 function updateRank(){
@@ -967,15 +986,68 @@ function showResults(){
   ).join("");
   $("resRewards").textContent = `+${me.place===1?400:120} moedas · +${me.place===1?120:40} XP · Circuito: ${R.map.name}`;
   showModal("resultsModal");
-  requestAnimationFrame(()=>{
-    top3.forEach((r,i)=>{
-      const cv=$("pdCanvas"+i); if(!cv) return;
-      const x2=cv.getContext("2d"); setupPixelCtx(x2);
-      const pi = i===1?0:(i===0?1:2);
-      drawUma(x2, r.def, 45, 198, 120, 0.35, pi===0?"win":(pi===2?"lose":"idle"), 1.2+i, i*1.7);
-    });
-  });
+  S.podium3 = top3;
+  animatePodium();
+  if(me.place===1) spawnConfetti(); // chuva de confete na vitória
   playMusic("lobby");
+}
+// ---------- pódio animado + festa ----------
+let podiumRAF = 0;
+export function stopPodium(){ if(podiumRAF){ cancelAnimationFrame(podiumRAF); podiumRAF=0; } S.podium3=null; }
+export function animatePodium(){
+  stopPodium();
+  const t0 = performance.now()/1000;
+  const step = ()=>{
+    const P3 = S.podium3;
+    if(!P3){ podiumRAF=0; return; }
+    const t = performance.now()/1000 - t0;
+    P3.forEach((r,i)=>{
+      const cv=document.getElementById("pdCanvas"+i); if(!cv) return;
+      const x2=cv.getContext("2d"); setupPixelCtx(x2);
+      x2.clearRect(0,0,cv.width,cv.height);
+      const pi = i===1?0:(i===0?1:2);
+      const pose = pi===0?"win":(pi===2?"lose":"idle");
+      x2.save();
+      if(pi===0) x2.translate(0,-Math.abs(Math.sin(t*4))*8); // 1º pulando
+      drawUma(x2, r.def, 45, 198, 120, 0.35+Math.sin(t*0.8+i)*0.05, pose, t+i, i*1.7);
+      x2.restore();
+      x2.font="20px sans-serif"; x2.textAlign="center";
+      if(pi===0) x2.fillText("🎉", 45+Math.sin(t*3)*3, 26+Math.abs(Math.sin(t*4))*4);
+      if(pi===1) x2.fillText("✨", 62, 34+Math.sin(t*2.4+i)*3);
+      if(pi===2) x2.fillText("💧", 58, 40+Math.sin(t*3+i)*3);
+    });
+    podiumRAF = requestAnimationFrame(step);
+  };
+  step();
+}
+function spawnConfetti(){
+  try{
+    const cv = document.createElement("canvas");
+    cv.style.cssText="position:fixed;inset:0;width:100vw;height:100vh;pointer-events:none;z-index:9999";
+    document.body.appendChild(cv);
+    cv.width=innerWidth; cv.height=innerHeight;
+    const g=cv.getContext("2d");
+    const cols=["#ff6b6b","#ffd166","#7dff9e","#66e0ff","#ff9ecb","#ffffff"];
+    const ps=Array.from({length:140},()=>({x:Math.random()*cv.width,y:-20-Math.random()*cv.height*0.3,
+      vx:(Math.random()-0.5)*120,vy:120+Math.random()*160,s:4+Math.random()*5,
+      c:cols[(Math.random()*cols.length)|0],ph:Math.random()*9}));
+    const t0=performance.now();
+    const loop=()=>{
+      const el=(performance.now()-t0)/1000;
+      g.clearRect(0,0,cv.width,cv.height);
+      for(const p of ps){
+        p.x+=p.vx*0.033+Math.sin(el*4+p.ph)*1.3; p.y+=p.vy*0.033;
+        if(p.y>cv.height+20){ p.y=-20; p.x=Math.random()*cv.width; }
+        g.fillStyle=p.c; g.fillRect(p.x,p.y,p.s,p.s*0.6);
+      }
+      if(el<3.2) requestAnimationFrame(loop); else cv.remove();
+    };
+    loop();
+  }catch(e){}
+}
+export function celebrate(kind){
+  if(kind==="win"){ sfx.win(); spawnConfetti(); toast("🎉 FESTA! Vitória comemorada!"); }
+  else { sfx.lose(); toast("😭 Poxa... foi por pouco! Na próxima vai!"); }
 }
 function fmtTime(s){ const m=Math.floor(s/60), ss=(s%60).toFixed(1).padStart(4,"0"); return `${m}:${ss}`; }
 function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
@@ -1099,6 +1171,23 @@ function drawRace(t){
       ctx.restore();
     }
     drawUma(ctx, r.def, sx, sy+8+zig, size, 1.08, pose, t+r.phase, r.phase, 0, r.superOn);
+    // poeira nos pés (correndo) + gota de suor (fôlego baixo)
+    if(!fxLow && (pose==="run"||pose==="dash")){
+      for(let di=0; di<2; di++){
+        const cyc = (((t*1.6 + r.phase + di*0.5) % 1)+1)%1;
+        const px = sx - size*(0.10 + cyc*0.24);
+        const py = sy - size*0.02 - cyc*size*0.05;
+        const ps = 2 + cyc*size*0.05;
+        ctx.save(); ctx.globalAlpha = 0.35*(1-cyc); ctx.fillStyle = "#ffffff";
+        ctx.fillRect(px-ps/2, py-ps/2, ps, ps*0.7);
+        ctx.restore();
+      }
+    }
+    if(!fxLow && r.stamina!==undefined && r.maxStamina && r.stamina/r.maxStamina<0.3 && !r.finished && R.countdown<=0){
+      const bob3 = Math.sin(t*7+r.phase*9)*3;
+      ctx.font=`${Math.round(h*0.034)}px monospace`; ctx.textAlign="center";
+      ctx.fillText("💧", sx+size*0.22, sy-size-50+bob3);
+    }
     if(r.you || r.place<=3){
       const yOff=(li%3)*20; li++;
       ctx.font=`${Math.round(h*0.030)}px monospace`; ctx.textAlign="center";
@@ -1472,7 +1561,6 @@ function fillSettings(){
   $("setQuality").value=S.settings.quality; $("setName").value=S.name;
   if($("setCam")) $("setCam").value=S.settings.camera||"Suave";
   if($("setFx")) $("setFx").value=S.settings.fx||"Alto";
-  if($("setVoice")) $("setVoice").value=S.settings.voice||"Ligada";
 }
 
 // expõe p/ inline handlers
