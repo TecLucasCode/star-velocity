@@ -17,6 +17,7 @@ export const S = window.__SV_STATE__ = {
   settings: { music: 0.7, sfx: 0.8, quality: "Alto", scene: "academia", camera: "Suave", fx: "Alto" },
   ctrlLayout: { scale: 1 },
   ready: false,
+  acct: null, // {user, pass} quando logado (sessão em memória + localStorage sv-acct)
   party: [], // {id,name,charId,ready,you}
   mode: "lobby", // lobby|chars|shop|missions|events|friends|settings|race
   race: null,
@@ -52,6 +53,121 @@ export async function save(){
     missions:S.missions, wins:S.wins, races:S.races, overtakes:S.overtakes, settings:S.settings, ctrlLayout:S.ctrlLayout };
   try{ if(kvOk) await root.kv["sv-save"].set("save", data); }catch(e){}
   try{ localStorage.setItem("sv-save", JSON.stringify(data)); }catch(e){}
+  queueAcctPush();
+}
+
+// ---------- CONTAS ONLINE (servidor próprio) ----------
+async function acctRpc(method, payload){
+  await connectNet();
+  if(!net.connected || !net.socket) throw new Error("offline");
+  const fn = net.socket.rpc && net.socket.rpc[method];
+  if(!fn) throw new Error("offline");
+  const res = await fn(JSON.stringify(payload));
+  try{ return JSON.parse(typeof res==="string"? res : new TextDecoder().decode(res)); }
+  catch(e){ return {}; }
+}
+export function acctErr(e){
+  const m = String((e&&e.message)||e||"");
+  const code = (m.match(/(taken|baduser|badpass|limit|slow|full|offline|bad)/)||[])[1];
+  return { taken:"Esse nome já está em uso.", baduser:"Usuário: 3 a 14 letras/números.",
+    badpass:"Senha: 4 a 72 caracteres.", bad:"Usuário ou senha inválidos.",
+    limit:"Muitas contas criadas aqui — tente mais tarde.", slow:"Muitas tentativas — aguarde um pouco.",
+    full:"Servidor cheio no momento.", offline:"Sem conexão com o servidor." }[code] || "Erro. Tente de novo.";
+}
+function unlockedMask(){
+  let m = 0;
+  for(const id of S.unlocked){ const i = CHARACTERS.findIndex(c=>c.id===id); if(i>=0&&i<32) m |= (1<<i); }
+  return m>>>0;
+}
+function decodeMask(mask){
+  mask >>>= 0; const ids = [];
+  for(let i=0;i<CHARACTERS.length&&i<32;i++) if(mask&(1<<i)) ids.push(CHARACTERS[i].id);
+  return ids;
+}
+function acctProfile(){
+  return { coins:S.coins, premium:S.premium, xp:S.xp, level:S.level, rankPts:S.rankPts,
+    wins:S.wins, races:S.races, overt:S.overtakes||0, mask:unlockedMask(),
+    sel:Math.max(0, CHARACTERS.findIndex(c=>c.id===S.charId)) };
+}
+function applyProfile(p){
+  if(!p) return;
+  if(p.coins!==undefined) S.coins=p.coins;
+  if(p.premium!==undefined) S.premium=p.premium;
+  if(p.xp!==undefined) S.xp=p.xp;
+  if(p.level!==undefined) S.level=p.level;
+  if(p.rankPts!==undefined){ S.rankPts=p.rankPts; updateRank(); }
+  if(p.wins!==undefined) S.wins=p.wins;
+  if(p.races!==undefined) S.races=p.races;
+  if(p.overt!==undefined) S.overtakes=p.overt;
+  if(p.mask!==undefined){ const ids=decodeMask(p.mask); S.unlocked=[...new Set([...S.unlocked, ...ids])]; }
+  if(p.sel!==undefined&&CHARACTERS[p.sel]) S.charId=CHARACTERS[p.sel].id;
+  if(!S.unlocked.includes(S.charId)) S.charId="special-week";
+  updateTopbar();
+}
+function setAcct(user, pass){
+  S.acct = { user, pass };
+  try{ localStorage.setItem("sv-acct", JSON.stringify(S.acct)); }catch(e){}
+  net.name = user; S.name = user;
+  updateTopbar(); refreshAcctUI();
+}
+export async function acctRegister(user, pass){
+  const r = await acctRpc("register", { user, pass, profile:acctProfile() });
+  if(!r||!r.ok) throw new Error("bad");
+  setAcct(r.user, pass);
+  save();
+  toast(`Conta ${r.user} criada! Progresso salvo online. 🎉`);
+  return r;
+}
+export async function acctLogin(user, pass){
+  const r = await acctRpc("login", { user, pass });
+  if(!r||!r.ok) throw new Error("bad");
+  applyProfile(r.profile);
+  setAcct(r.user, pass);
+  save();
+  toast(`Bem-vindo de volta, ${r.user}! 💾`);
+  return r;
+}
+export function acctLogout(){
+  S.acct = null;
+  try{ localStorage.removeItem("sv-acct"); }catch(e){}
+  net.name = S.name;
+  updateTopbar(); refreshAcctUI();
+  toast("Conta desconectada. Progresso local continua salvo.");
+}
+export async function autoLogin(){
+  let a = null;
+  try{ a = JSON.parse(localStorage.getItem("sv-acct")); }catch(e){}
+  if(!a||!a.user||!a.pass) return false;
+  try{
+    const r = await acctRpc("login", { user:a.user, pass:a.pass });
+    if(!r||!r.ok) throw new Error("bad");
+    applyProfile(r.profile);
+    setAcct(r.user, a.pass);
+    save();
+    return true;
+  }catch(e){ S.acct=null; try{ localStorage.removeItem("sv-acct"); }catch(e2){} refreshAcctUI(); return false; }
+}
+let acctPushT = 0, acctPushTimer = 0;
+export function queueAcctPush(){
+  if(!S.acct) return;
+  const run = ()=>{
+    acctPushT = Date.now();
+    acctRpc("save", { user:S.acct.user, pass:S.acct.pass, profile:acctProfile() }).catch(()=>{});
+  };
+  if(Date.now()-acctPushT > 5000) run();
+  else{ clearTimeout(acctPushTimer); acctPushTimer = setTimeout(run, 5000-(Date.now()-acctPushT)); }
+}
+export function refreshAcctUI(){
+  const b = document.getElementById("btnAcct");
+  if(b) b.textContent = S.acct ? ("👤 "+S.acct.user) : "👤 Entrar";
+  const st = document.getElementById("acctStatus"), lo = document.getElementById("btnDoLogout");
+  const f = document.getElementById("acctForm"), msg = document.getElementById("acctMsg");
+  if(st) st.textContent = S.acct
+    ? `Logado como ${S.acct.user}. Moedas, personagens, nível e rank salvam online.`
+    : "Jogue como convidado ou entre na sua conta para salvar o progresso online.";
+  if(lo) lo.hidden = !S.acct;
+  if(f) f.hidden = !!S.acct;
+  if(msg) msg.textContent = "";
 }
 function applySettings(){ setVolumes(S.settings.music, S.settings.sfx); }
 

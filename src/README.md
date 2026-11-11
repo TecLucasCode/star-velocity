@@ -106,6 +106,13 @@ Layout `state` v1: bytes `S V 0 1` + contadores.
   piscadinha/blink com traço grosso (lê em 90×200), franja um pouco mais curta.
 - V1.7c (fofura final): cabeção 0.455h, bochecha redonda, olhões 0.32, BRILHÃO 34%,
   blush maior + gloss branco na bochecha.
+- V1.8 (contas online): usuário (3-14 letras/números) + senha (4-72), hash SHA-256
+  com salt no servidor, SEM e-mail/recuperação (aviso no modal). RPC
+  register/login/save; state "SVA2" + slots 96B cap 20000; rate-limit 6/hora por
+  rede e 15/min por conexão. Perfil: moedas/premium/xp/level/rank/wins/races +
+  mask opaca (desbloqueados) + sel opaco (ativa). Modal 👤 na topbar, auto-login,
+  push a cada save (5s), nome da conta no multiplayer. Convidado funciona sem conta.
+  ⚠️ vale em PRODUÇÃO só após SALVAR o generator.
 - Consistência 360°: frente/perfil (rosto sempre 3/4 — 2 olhos) / costas (cabelo).
 - Poses: idle (squash+ginga), run (waddle + tesoura), dash, win/super (braços p/ cima +
   olho feliz ^ ^ + sorrisão), lose (orelhas caídas), present (braços abertos).
