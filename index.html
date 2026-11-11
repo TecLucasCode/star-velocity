@@ -1,8 +1,136 @@
 <script type="text/x-server-plugin">
-// STAR VELOCITY — servidor autoritativo leve (relay sequenciado + presença).
-// Salas efêmeras por código; sem dados sensíveis em `state`.
-if (typeof state !== "undefined" && state.length >= 4) {
-  if (!(state[0]===83 && state[1]===86)) { state[0]=83; state[1]=86; state[2]=48; state[3]=49; }
+// STAR VELOCITY — servidor: relay de salas + contas (registro/login/save).
+// state: [0..3] magic "SVA2" | [4..5] numAccounts u16LE | slots 96B a partir de 64, cap 20000.
+// Slot: [0]nlen [1..15]nome [16..23]salt [24..55]sha256(salt|nome|senha)
+// [56]coins u32 [60]premium u32 [64]xp u32 [68]lvl u16 [70]rankPts u32 [74]wins u16
+// [76]races u16 [78]overt u16 [80]mask u32 (opaco) [84]sel u16 (opaco) [86]seen u32.
+function ensureAccounts(){
+  var sv = (state[0]===83&&state[1]===86&&((state[2]===65&&state[3]===50)||(state[2]===86&&state[3]===49)));
+  if(!sv || state[2]===86){
+    state[0]=83;state[1]=86;state[2]=65;state[3]=50;state[4]=0;state[5]=0;
+    for(var i=6;i<64;i++) state[i]=0;
+  }
+}
+ensureAccounts();
+// ---- SHA-256 puro (sem crypto no servidor) ----
+var SHK=[0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+function sha256Bytes(msg){
+  var H=[0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  var ml=msg.length, tot=ml+9, pad=(64-(tot%64))%64, len=tot+pad, i, off;
+  var buf=new Uint8Array(len);
+  for(i=0;i<ml;i++) buf[i]=msg[i];
+  buf[ml]=0x80;
+  var hi=Math.floor(ml/0x20000000), lo=(ml<<3)>>>0;
+  buf[len-8]=hi>>>24&255;buf[len-7]=hi>>>16&255;buf[len-6]=hi>>>8&255;buf[len-5]=hi&255;
+  buf[len-4]=lo>>>24&255;buf[len-3]=lo>>>16&255;buf[len-2]=lo>>>8&255;buf[len-1]=lo&255;
+  var w=new Uint32Array(64);
+  function rr(x,n){return (x>>>n)|(x<<(32-n));}
+  for(off=0;off<len;off+=64){
+    for(i=0;i<16;i++) w[i]=buf[off+i*4]*0x1000000+buf[off+i*4+1]*0x10000+buf[off+i*4+2]*0x100+buf[off+i*4+3];
+    for(i=16;i<64;i++){
+      var x15=w[i-15], x2=w[i-2];
+      var s0=(rr(x15,7)^rr(x15,18)^(x15>>>3))|0;
+      var s1=(rr(x2,17)^rr(x2,19)^(x2>>>10))|0;
+      w[i]=(w[i-16]+s0+w[i-7]+s1)|0;
+    }
+    var a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+    for(i=0;i<64;i++){
+      var S1=(rr(e,6)^rr(e,11)^rr(e,25))|0;
+      var ch=((e&f)^((~e)&g))|0;
+      var t1=(h+S1+ch+SHK[i]+w[i])|0;
+      var S0=(rr(a,2)^rr(a,13)^rr(a,22))|0;
+      var mj=((a&b)^(a&c)^(b&c))|0;
+      var t2=(S0+mj)|0;
+      h=g;g=f;f=e;e=(d+t1)|0;d=c;c=b;b=a;a=(t1+t2)|0;
+    }
+    H[0]=(H[0]+a)|0;H[1]=(H[1]+b)|0;H[2]=(H[2]+c)|0;H[3]=(H[3]+d)|0;
+    H[4]=(H[4]+e)|0;H[5]=(H[5]+f)|0;H[6]=(H[6]+g)|0;H[7]=(H[7]+h)|0;
+  }
+  var out=new Uint8Array(32);
+  for(i=0;i<8;i++){var v=H[i]>>>0;out[i*4]=v>>>24&255;out[i*4+1]=v>>>16&255;out[i*4+2]=v>>>8&255;out[i*4+3]=v&255;}
+  return out;
+}
+// ---- contas: acesso binário ----
+var ACCT_BASE=64, ACCT_SLOT=96, ACCT_MAX=20000;
+function rdU16(o){return state[o]|(state[o+1]<<8);}
+function wrU16(o,v){v>>>=0;state[o]=v&255;state[o+1]=(v>>>8)&255;}
+function rdU32(o){return (state[o]+state[o+1]*256+state[o+2]*65536+state[o+3]*16777216)>>>0;}
+function wrU32(o,v){v>>>=0;state[o]=v&255;state[o+1]=(v>>>8)&255;state[o+2]=(v>>>16)&255;state[o+3]=(v>>>24)&255;}
+function slotOff(i){return ACCT_BASE+i*ACCT_SLOT;}
+function numAccts(){return rdU16(4);}
+function setNumAccts(n){wrU16(4,n);}
+function findAcct(name){
+  var nb=numAccts(), i, j;
+  for(i=0;i<nb;i++){
+    var off=slotOff(i);
+    if(state[off]!==name.length) continue;
+    var ok=true;
+    for(j=0;j<name.length;j++) if(state[off+1+j]!==name.charCodeAt(j)){ok=false;break;}
+    if(ok) return i;
+  }
+  return -1;
+}
+var _te=new TextEncoder();
+function hashPass(salt,name,pass){
+  var nm=_te.encode(name), pw=_te.encode(pass);
+  var buf=new Uint8Array(8+1+nm.length+1+pw.length), o=8, i;
+  for(i=0;i<8;i++) buf[i]=salt[i];
+  buf[o++]=124;
+  for(i=0;i<nm.length;i++) buf[o++]=nm[i];
+  buf[o++]=124;
+  for(i=0;i<pw.length;i++) buf[o++]=pw[i];
+  return sha256Bytes(buf);
+}
+function verifyAcct(idx,pass){
+  var off=slotOff(idx), i, name="";
+  for(i=0;i<state[off];i++) name+=String.fromCharCode(state[off+1+i]);
+  var salt=new Uint8Array(8);
+  for(i=0;i<8;i++) salt[i]=state[off+16+i];
+  var h=hashPass(salt,name,pass);
+  for(i=0;i<32;i++) if(h[i]!==state[off+24+i]) return false;
+  return true;
+}
+function readProfile(off){
+  return {coins:rdU32(off+56),premium:rdU32(off+60),xp:rdU32(off+64),level:rdU16(off+68),
+    rankPts:rdU32(off+70),wins:rdU16(off+74),races:rdU16(off+76),overt:rdU16(off+78),
+    mask:rdU32(off+80),sel:rdU16(off+84)};
+}
+function clampN(v,a,b){v=+v;if(!isFinite(v))v=a;v=Math.floor(v);return v<a?a:v>b?b:v;}
+function writeProfile(off,p){
+  p=p||{};
+  wrU32(off+56,clampN(p.coins,0,99999999)); wrU32(off+60,clampN(p.premium,0,9999999));
+  wrU32(off+64,clampN(p.xp,0,99999999)); wrU16(off+68,clampN(p.level,1,999));
+  wrU32(off+70,clampN(p.rankPts,0,99999999)); wrU16(off+74,clampN(p.wins,0,65535));
+  wrU16(off+76,clampN(p.races,0,65535)); wrU16(off+78,clampN(p.overt,0,65535));
+  wrU32(off+80,clampN(p.mask,0,4294967295)); wrU16(off+84,clampN(p.sel,0,65535));
+  wrU32(off+86,Math.floor(Date.now()/1000));
+}
+function parseObj(data){
+  try{var s=(typeof data==="string")?data:new TextDecoder().decode(data);var o=JSON.parse(s);return (o&&typeof o==="object")?o:{};}
+  catch(e){return {};}
+}
+function normUser(u){
+  if(typeof u!=="string") return null;
+  u=u.toLowerCase().trim();
+  if(!/^[a-z0-9]{3,14}$/.test(u)) return null;
+  return u;
+}
+var REG_WINDOW=new Map(); // netKey -> [ts] (efêmero)
+var LOGIN_TRY=new Map(); // connId -> {min,n} (efêmero)
+function allowRegister(conn){
+  var now=Date.now(), k=conn.net[3]+":"+conn.net[2], i;
+  var arr=REG_WINDOW.get(k)||[], fresh=[];
+  for(i=0;i<arr.length;i++) if(arr[i]>now-3600000) fresh.push(arr[i]);
+  var lim=conn.isProxy?3:6;
+  if(fresh.length>=lim){REG_WINDOW.set(k,fresh);return false;}
+  fresh.push(now); REG_WINDOW.set(k,fresh);
+  if(REG_WINDOW.size>5000) REG_WINDOW.clear();
+  return true;
+}
+function allowLogin(conn){
+  var m=Math.floor(Date.now()/60000), r=LOGIN_TRY.get(conn.id);
+  if(!r||r.min!==m){LOGIN_TRY.set(conn.id,{min:m,n:1});return true;}
+  r.n++; return r.n<=15;
 }
 const RATE = new Map(); // conn.id -> {sec, n}
 function allow(conn){
@@ -15,7 +143,7 @@ function allow(conn){
 function validRoom(rm){ return typeof rm==="string" && /^[A-Z]{4}$/.test(rm); }
 function topic(rm){ return "sv-room-"+rm; }
 self.onopen = ({conn}) => {};
-self.onclose = ({conn}) => { RATE.delete(conn.id); };
+self.onclose = ({conn}) => { RATE.delete(conn.id); LOGIN_TRY.delete(conn.id); };
 self.onmessage = ({conn, data}) => {
   if(!allow(conn)){ conn.close(1013, "too fast"); return; }
   let m;
@@ -66,7 +194,46 @@ self.onmessage = ({conn, data}) => {
   }
 };
 self.rpc = {
-  ping(){ return "pong"; }
+  ping(){ return "pong"; },
+  register({conn}, data){
+    var o=parseObj(data), user=normUser(o.user), pass=o.pass, i;
+    if(!user) throw new Error("baduser: use 3-14 letras/números");
+    if(typeof pass!=="string"||pass.length<4||pass.length>72) throw new Error("badpass: senha 4-72 caracteres");
+    if(!allowRegister(conn)) throw new Error("limit: muitas contas nesta rede, tente mais tarde");
+    if(findAcct(user)>=0) throw new Error("taken: nome já existe");
+    var n=numAccts();
+    if(n>=ACCT_MAX) throw new Error("full: servidor cheio");
+    var off=slotOff(n), salt=new Uint8Array(8);
+    for(i=0;i<8;i++) salt[i]=Math.floor(Math.random()*256);
+    var h=hashPass(salt,user,pass);
+    state[off]=user.length;
+    for(i=0;i<user.length;i++) state[off+1+i]=user.charCodeAt(i);
+    for(i=0;i<8;i++) state[off+16+i]=salt[i];
+    for(i=0;i<32;i++) state[off+24+i]=h[i];
+    writeProfile(off, o.profile);
+    setNumAccts(n+1);
+    return JSON.stringify({ok:1,user:user,profile:readProfile(off)});
+  },
+  login({conn}, data){
+    var o=parseObj(data), user=normUser(o.user), pass=o.pass, idx;
+    if(!user||typeof pass!=="string") throw new Error("bad: usuário/senha inválidos");
+    if(!allowLogin(conn)) throw new Error("slow: muitas tentativas, aguarde");
+    idx=findAcct(user);
+    if(idx<0) throw new Error("bad: usuário/senha inválidos");
+    if(!verifyAcct(idx,pass)) throw new Error("bad: usuário/senha inválidos");
+    var off=slotOff(idx);
+    wrU32(off+86,Math.floor(Date.now()/1000));
+    return JSON.stringify({ok:1,user:user,profile:readProfile(off)});
+  },
+  save({conn}, data){
+    var o=parseObj(data), user=normUser(o.user), pass=o.pass, idx;
+    if(!user||typeof pass!=="string") throw new Error("bad");
+    if(!allowLogin(conn)) throw new Error("slow");
+    idx=findAcct(user);
+    if(idx<0||!verifyAcct(idx,pass)) throw new Error("bad");
+    writeProfile(slotOff(idx), o.profile);
+    return '{"ok":1}';
+  }
 };
 </script>
 <style>
@@ -324,6 +491,7 @@ self.rpc = {
     <span class="pill prem">💎 <span id="tbPrem">0</span></span>
     <span class="pill rank">🏅 <span id="tbRank">Bronze</span></span>
     <span class="sp"></span>
+    <button class="smBtn" id="btnAcct">👤 Entrar</button>
     <button class="smBtn" id="btnFs">⛶ Tela cheia</button>
     <button class="smBtn" data-go="settings">⚙</button>
   </div>
@@ -488,11 +656,32 @@ self.rpc = {
   </div>
 </div>
 
+<div class="modal" id="acctModal" hidden>
+  <div class="modalBox"><h2>👤 Conta online</h2>
+    <p id="acctStatus" style="font-size:13px">Jogue como convidado ou entre na sua conta para salvar o progresso online.</p>
+    <div id="acctForm">
+      <p>Usuário (3-14 letras/números):<br><input id="acctUser" maxlength="14" style="width:180px"></p>
+      <p>Senha (4+ caracteres):<br><input id="acctPass" type="password" maxlength="72" style="width:180px"></p>
+      <p id="acctMsg" style="font-size:12px;color:#ff8a80;min-height:16px"></p>
+      <div class="rowBtns">
+        <button class="smBtn" id="btnDoLogin">Entrar</button>
+        <button class="smBtn" id="btnDoRegister">Criar conta</button>
+      </div>
+    </div>
+    <div class="rowBtns">
+      <button class="smBtn" id="btnDoLogout" hidden>🚪 Sair</button>
+      <button class="smBtn" id="btnCloseAcct">Fechar</button>
+    </div>
+    <p style="font-size:11px;color:#9be8ff">A conta guarda moedas, personagens, nível e rank no servidor. Sem e-mail: não dá para recuperar a senha — use uma senha só do jogo.</p>
+  </div>
+</div>
+
 <div id="toast" hidden></div>
 
 <script type="module">
 import { S, loadSave, save, toast, updateTopbar, showScreen, showModal, hideModal,
-  initLobby, initRace, startRace, doEmote, refreshChars, celebrate, stopPodium } from "./src/game.js";
+  initLobby, initRace, startRace, doEmote, refreshChars, celebrate, stopPodium,
+  acctRegister, acctLogin, acctLogout, autoLogin, refreshAcctUI, acctErr } from "./src/game.js";
 import { LOBBY_SCENES, MAPS, getChar, unlockedMaps } from "./src/characters.js";
 import { net, connectNet, createRoom, joinRoom, leaveRoom, announceHello, sendGameEvent } from "./src/net.js";
 import { sfx, playMusic, initAudio, resumeAudio } from "./src/audio.js";
@@ -503,7 +692,27 @@ updateTopbar();
 initLobby(); initRace();
 showScreen("lobby");
 playMusic("lobby");
-connectNet().then(()=>{ if(net.room) announceHello(); });
+connectNet().then(async ()=>{ if(net.room) announceHello(); await autoLogin(); refreshAcctUI(); });
+refreshAcctUI();
+
+// conta online
+document.getElementById("btnAcct").onclick=()=>{ sfx.click(); refreshAcctUI(); showModal("acctModal"); };
+document.getElementById("btnCloseAcct").onclick=()=>hideModal("acctModal");
+function acctInputs(){
+  return { user: document.getElementById("acctUser").value, pass: document.getElementById("acctPass").value };
+}
+function acctSay(msg){ document.getElementById("acctMsg").textContent = msg; }
+document.getElementById("btnDoLogin").onclick=async ()=>{
+  const { user, pass } = acctInputs(); acctSay("Entrando...");
+  try{ await acctLogin(user, pass); hideModal("acctModal"); }
+  catch(e){ acctSay(acctErr(e)); }
+};
+document.getElementById("btnDoRegister").onclick=async ()=>{
+  const { user, pass } = acctInputs(); acctSay("Criando conta...");
+  try{ await acctRegister(user, pass); hideModal("acctModal"); }
+  catch(e){ acctSay(acctErr(e)); }
+};
+document.getElementById("btnDoLogout").onclick=()=>{ acctLogout(); hideModal("acctModal"); };
 
 // navegação
 document.querySelectorAll("[data-go]").forEach(b=>b.onclick=()=>{ sfx.click(); showScreen(b.dataset.go); });
